@@ -14,18 +14,29 @@ public class App {
 
     public static void main(String[] args) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
-            System.out.println("Escolha uma opcao:");
-            System.out.println("1. Buscar por endereco");
-            System.out.println("2. Buscar por CEP");
-            System.out.print("Opcao: ");
-            String opcao = reader.readLine();
+            boolean sair = false;
+            while (!sair) {
+                System.out.println("Escolha uma opcao:");
+                System.out.println("1. Buscar por endereco");
+                System.out.println("2. Buscar por CEP");
+                System.out.println("3. Sair");
+                System.out.print("Opcao: ");
+                String opcao = reader.readLine();
 
-            if (opcao.equals("1")) {
-                buscarPorEndereco(reader);
-            } else if (opcao.equals("2")) {
-                buscarPorCep(reader);
-            } else {
-                System.out.println("Opção inválida.");
+                switch (opcao) {
+                    case "1":
+                        buscarPorEndereco(reader);
+                        break;
+                    case "2":
+                        buscarPorCep(reader);
+                        break;
+                    case "3":
+                        sair = true;
+                        break;
+                    default:
+                        System.out.println("Opção inválida.");
+                        break;
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -39,17 +50,21 @@ public class App {
         String cidade = reader.readLine();
         System.out.print("Informe o logradouro: ");
         String logradouro = reader.readLine();
+        System.out.println();
 
         Map<String, String> resultados = consultarEndereco(uf, cidade, logradouro);
-        exibirResultados(resultados);
+        exibirResultadosEndereco(resultados);
+        System.out.println();
     }
 
     private static void buscarPorCep(BufferedReader reader) throws IOException {
         System.out.print("Informe o CEP: ");
         String cep = reader.readLine();
+        System.out.println();
 
-        Map<String, String> resultado = consultarCep(cep);
+        Map<String, String[]> resultado = consultarCep(cep);
         exibirResultadoCep(resultado);
+        System.out.println();
     }
 
     private static Map<String, String> consultarEndereco(String uf, String cidade, String logradouro) throws IOException {
@@ -73,7 +88,7 @@ public class App {
             }
             reader.close();
 
-            return extrairDadosJson(response.toString());
+            return extrairDadosJsonEndereco(response.toString());
         } else {
             System.out.println("Erro na consulta. Código de resposta: " + responseCode);
         }
@@ -81,7 +96,7 @@ public class App {
         return null;
     }
 
-    private static Map<String, String> consultarCep(String cep) throws IOException {
+    private static Map<String, String[]> consultarCep(String cep) throws IOException {
         cep = cep.replace("-", "");
 
         String urlStr = String.format(VIA_CEP_CEP_API_URL, cep);
@@ -101,7 +116,7 @@ public class App {
             }
             reader.close();
 
-            return extrairDadosJson(response.toString());
+            return extrairDadosJsonCep(response.toString());
         } else {
             System.out.println("Erro na consulta. Código de resposta: " + responseCode);
         }
@@ -109,7 +124,7 @@ public class App {
         return null;
     }
 
-    private static Map<String, String> extrairDadosJson(String json) {
+    private static Map<String, String> extrairDadosJsonEndereco(String json) {
         Map<String, String> dados = new HashMap<>();
 
         String[] resultados = json.split("},");
@@ -144,42 +159,85 @@ public class App {
         return dados;
     }
 
+    private static Map<String, String[]> extrairDadosJsonCep(String json) {
+        Map<String, String[]> dados = new HashMap<>();
+
+        String[] campos = json.replaceAll("[{}\"]", "").split(",");
+
+        String cep = null;
+        String logradouro = null;
+        String complemento = null;
+        String bairro = null;
+        String localidade = null;
+        String uf = null;
+        String ddd = null;
+
+        for (String campo : campos) {
+            String[] keyValue = campo.split(":");
+            String chave = keyValue[0].trim();
+            String valor = keyValue[1].trim();
+
+            if (chave.equals("cep")) {
+                cep = formatarTexto(valor);
+            } else if (chave.equals("logradouro")) {
+                logradouro = formatarTexto(valor);
+            } else if (chave.equals("complemento")) {
+                complemento = formatarTexto(valor);
+            } else if (chave.equals("bairro")) {
+                bairro = formatarTexto(valor);
+            } else if (chave.equals("localidade")) {
+                localidade = formatarTexto(valor);
+            } else if (chave.equals("uf")) {
+                uf = formatarTexto(valor);
+            } else if (chave.equals("ddd")) {
+                ddd = formatarTexto(valor);
+            }
+        }
+
+        if (cep != null) {
+            dados.put(cep, new String[]{logradouro, complemento, bairro, localidade, uf, ddd});
+        }
+
+        return dados;
+    }
+
     private static String formatarTexto(String texto) {
         texto = Normalizer.normalize(texto, Normalizer.Form.NFD);
         texto = texto.replaceAll("[^\\p{ASCII}]", "");
         return texto;
     }
 
-    private static void exibirResultados(Map<String, String> resultados) {
+    private static void exibirResultadosEndereco(Map<String, String> resultados) {
         if (resultados != null && !resultados.isEmpty()) {
             System.out.println("CEP\t\t\tBairro\t\t\tLogradouro");
+            System.out.println("----------------------------------------------------------");
             for (Map.Entry<String, String> entry : resultados.entrySet()) {
                 String cep = entry.getKey();
                 String endereco = entry.getValue();
-
-                String[] partes = endereco.split(",", 2);
-                String bairro = partes[0].trim();
-                String logradouro = partes[1].trim();
-
-                System.out.printf("%-15s%-20s%s%n", cep, bairro, logradouro);
+            
+                String[] enderecoParts = endereco.split(", ");
+            
+                System.out.printf("%-15s %-25s %s\n", cep, enderecoParts[0], enderecoParts[1]);
             }
         } else {
             System.out.println("Nenhum resultado encontrado.");
         }
     }
 
-    private static void exibirResultadoCep(Map<String, String> resultado) {
+
+    private static void exibirResultadoCep(Map<String, String[]> resultado) {
         if (resultado != null && !resultado.isEmpty()) {
-            System.out.println("CEP\t\t\tBairro\t\t\tLogradouro");
-            for (Map.Entry<String, String> entry : resultado.entrySet()) {
+            for (Map.Entry<String, String[]> entry : resultado.entrySet()) {
                 String cep = entry.getKey();
-                String endereco = entry.getValue();
+                String[] dados = entry.getValue();
 
-                String[] partes = endereco.split(",", 2);
-                String bairro = partes[0].trim();
-                String logradouro = partes[1].trim();
-
-                System.out.printf("%-15s%-20s%s%n", cep, bairro, logradouro);
+                System.out.println("CEP: " + cep);
+                System.out.println("Logradouro: " + dados[0]);
+                System.out.println("Complemento: " + dados[1]);
+                System.out.println("Bairro: " + dados[2]);
+                System.out.println("Localidade: " + dados[3]);
+                System.out.println("UF: " + dados[4]);
+                System.out.println("DDD: " + dados[5]);
             }
         } else {
             System.out.println("Nenhum resultado encontrado.");
