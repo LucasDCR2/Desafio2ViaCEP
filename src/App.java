@@ -6,49 +6,34 @@ import java.net.URL;
 import java.text.Normalizer;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Scanner;
 
 public class App {
+
     private static final String VIA_CEP_ENDERECO_API_URL = "http://viacep.com.br/ws/%s/%s/%s/json/";
     private static final String VIA_CEP_CEP_API_URL = "http://viacep.com.br/ws/%s/json/";
 
-    public static void main(String[] args) {
-        try (Scanner scanner = new Scanner(System.in)) {
-            boolean sair = false;
+    private static Map<String, Map<String, String[]>> cache = new HashMap<>();
 
+    public static void main(String[] args) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+            boolean sair = false;
             while (!sair) {
                 System.out.println("Escolha uma opcao:");
                 System.out.println("1. Buscar por endereco");
                 System.out.println("2. Buscar por CEP");
                 System.out.println("3. Sair");
                 System.out.print("Opcao: ");
-                String opcao = scanner.nextLine();
+                String opcao = reader.readLine();
 
                 switch (opcao) {
                     case "1":
-                        System.out.print("Informe o UF: ");
-                        String uf = scanner.nextLine();
-                        System.out.print("Informe a cidade: ");
-                        String cidade = scanner.nextLine();
-                        System.out.print("Informe o logradouro: ");
-                        String logradouro = scanner.nextLine();
-                        System.out.println();
-
-                        Map<String, String[]> resultados = consultarEndereco(uf, cidade, logradouro);
-                        exibirResultadosEndereco(resultados);
+                        buscarPorEndereco(reader);
                         break;
                     case "2":
-                        System.out.print("Informe o CEP: ");
-                        String cep = scanner.nextLine();
-                        System.out.println();
-
-                        Map<String, String[]> resultado = consultarCep(cep);
-                        exibirResultadoCep(resultado);
-                        System.out.println();
+                        buscarPorCep(reader);
                         break;
                     case "3":
-                        System.out.println("Saindo...");
-                        sair = true; // Define a flag para sair do loop
+                        sair = true;
                         break;
                     default:
                         System.out.println("Opção inválida.");
@@ -58,6 +43,44 @@ public class App {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private static void buscarPorEndereco(BufferedReader reader) throws IOException {
+        System.out.print("Informe a UF: ");
+        String uf = reader.readLine();
+        System.out.print("Informe a cidade: ");
+        String cidade = reader.readLine();
+        System.out.print("Informe o logradouro: ");
+        String logradouro = reader.readLine();
+        System.out.println();
+
+        String cacheKey = uf + cidade + logradouro;
+        if (cache.containsKey(cacheKey)) {
+            exibirResultadosEndereco(cache.get(cacheKey));
+        } else {
+            Map<String, String[]> resultados = consultarEndereco(uf, cidade, logradouro);
+            cache.put(cacheKey, resultados);
+            exibirResultadosEndereco(resultados);
+        }
+
+        System.out.println();
+    }
+
+    private static void buscarPorCep(BufferedReader reader) throws IOException {
+        System.out.print("Informe o CEP: ");
+        String cep = reader.readLine();
+        System.out.println();
+
+        String cacheKey = cep;
+        if (cache.containsKey(cacheKey)) {
+            exibirResultadoCep(cache.get(cacheKey));
+        } else {
+            Map<String, String[]> resultado = consultarCep(cep);
+            cache.put(cacheKey, resultado);
+            exibirResultadoCep(resultado);
+        }
+
+        System.out.println();
     }
 
     private static Map<String, String[]> consultarEndereco(String uf, String cidade, String logradouro) throws IOException {
@@ -82,6 +105,34 @@ public class App {
             reader.close();
 
             return extrairDadosJsonEndereco(response.toString());
+        } else {
+            System.out.println("Erro na consulta. Código de resposta: " + responseCode);
+        }
+
+        return null;
+    }
+
+    private static Map<String, String[]> consultarCep(String cep) throws IOException {
+        cep = cep.replace("-", "");
+
+        String urlStr = String.format(VIA_CEP_CEP_API_URL, cep);
+        URL url = new URL(urlStr);
+
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("GET");
+
+        int responseCode = connection.getResponseCode();
+
+        if (responseCode == 200) {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            reader.close();
+
+            return extrairDadosJsonCep(response.toString());
         } else {
             System.out.println("Erro na consulta. Código de resposta: " + responseCode);
         }
@@ -122,34 +173,6 @@ public class App {
         }
 
         return dados;
-    }
-
-    private static Map<String, String[]> consultarCep(String cep) throws IOException {
-        cep = cep.replace("-", "");
-
-        String urlStr = String.format(VIA_CEP_CEP_API_URL, cep);
-        URL url = new URL(urlStr);
-
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("GET");
-
-        int responseCode = connection.getResponseCode();
-
-        if (responseCode == 200) {
-            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-            StringBuilder response = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
-            }
-            reader.close();
-
-            return extrairDadosJsonCep(response.toString());
-        } else {
-            System.out.println("Erro na consulta. Código de resposta: " + responseCode);
-        }
-
-        return null;
     }
 
     private static Map<String, String[]> extrairDadosJsonCep(String json) {
@@ -195,54 +218,42 @@ public class App {
     }
 
     private static String formatarTexto(String texto) {
-        texto = Normalizer.normalize(texto, Normalizer.Form.NFD);
-        texto = texto.replaceAll("[^\\p{ASCII}]", "");
-        return texto;
+        return Normalizer.normalize(texto, Normalizer.Form.NFD).replaceAll("[^\\p{ASCII}]", "");
     }
+
 
     private static void exibirResultadosEndereco(Map<String, String[]> resultados) {
         if (resultados.isEmpty()) {
             System.out.println("Nenhum resultado encontrado.");
         } else {
-            System.out.println("CEP                     Bairro                  Logradouro");
-            System.out.println("----------------------------------------------------------");
-
+            System.out.println(String.format("%-15s%-20s%-30s", "CEP", "BAIRRO", "LOGRADOURO"));
             for (Map.Entry<String, String[]> entry : resultados.entrySet()) {
                 String cep = entry.getKey();
                 String[] dados = entry.getValue();
 
-                String bairro = dados[0];
-                String logradouro = dados[1];
-
-                System.out.printf("%-24s%-24s%-24s%n", cep, bairro, logradouro);
+                String formattedOutput = String.format("%-15s%-20s%-30s", cep, dados[0], dados[1]);
+                System.out.println(formattedOutput);
             }
         }
-
-        System.out.println();
     }
 
+
     private static void exibirResultadoCep(Map<String, String[]> resultado) {
-        if (resultado == null) {
+        if (resultado.isEmpty()) {
             System.out.println("Nenhum resultado encontrado.");
         } else {
             for (Map.Entry<String, String[]> entry : resultado.entrySet()) {
                 String cep = entry.getKey();
                 String[] dados = entry.getValue();
 
-                String logradouro = dados[0];
-                String complemento = dados[1];
-                String bairro = dados[2];
-                String localidade = dados[3];
-                String uf = dados[4];
-                String ddd = dados[5];
-
                 System.out.println("CEP: " + cep);
-                System.out.println("Logradouro: " + logradouro);
-                System.out.println("Complemento: " + complemento);
-                System.out.println("Bairro: " + bairro);
-                System.out.println("Localidade: " + localidade);
-                System.out.println("UF: " + uf);
-                System.out.println("DDD: " + ddd);
+                System.out.println("Logradouro: " + dados[0]);
+                System.out.println("Complemento: " + dados[1]);
+                System.out.println("Bairro: " + dados[2]);
+                System.out.println("Localidade: " + dados[3]);
+                System.out.println("UF: " + dados[4]);
+                System.out.println("DDD: " + dados[5]);
+                System.out.println();
             }
         }
     }
